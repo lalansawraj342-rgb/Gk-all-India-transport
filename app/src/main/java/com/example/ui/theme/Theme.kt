@@ -1,52 +1,73 @@
 package com.example.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme =
-  darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
+  darkColorScheme(
+    primary = EmeraldDarkPrimary,
+    onPrimary = EmeraldDarkOnPrimary,
+    primaryContainer = EmeraldPrimary,
+    onPrimaryContainer = PureWhite,
+    secondary = Color(0xFF60A5FA),
+    onSecondary = NavyDeep,
+    secondaryContainer = NavySecondary,
+    onSecondaryContainer = PureWhite,
+    tertiary = AmberAccent,
+    onTertiary = PureWhite,
+    background = NavyDarkSurface,
+    onBackground = PureWhite,
+    surface = NavyDarkCard,
+    onSurface = PureWhite,
+    surfaceVariant = Color(0xFF1D3557),
+    onSurfaceVariant = Color(0xFFCBD5E1),
+    outline = Color(0xFF334155),
+    error = Color(0xFFF87171),
+    onError = Color(0xFF450A0A),
+  )
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    primary = EmeraldPrimary,
+    onPrimary = PureWhite,
+    primaryContainer = EmeraldLightContainer,
+    onPrimaryContainer = EmeraldOnContainer,
+    secondary = NavyDeep,
+    onSecondary = PureWhite,
+    secondaryContainer = NavyContainer,
+    onSecondaryContainer = NavyOnContainer,
+    tertiary = AmberAccent,
+    onTertiary = PureWhite,
+    tertiaryContainer = AmberContainer,
+    onTertiaryContainer = AmberOnContainer,
+    background = OffWhiteBg,
+    onBackground = InkPrimary,
+    surface = PureWhite,
+    onSurface = InkPrimary,
+    surfaceVariant = SurfaceMuted,
+    onSurfaceVariant = InkSecondary,
+    outline = BorderSlate,
+    error = ErrorRed,
+    onError = PureWhite,
+    errorContainer = ErrorContainerLight,
+    onErrorContainer = ErrorOnContainerLight,
   )
 
 @Composable
-fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
+fun GkTransportTheme(
+  isHindi: Boolean = false,
+  darkTheme: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
+  val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+  MaterialTheme(
+    colorScheme = colorScheme,
+    typography = appTypography(isHindi = isHindi),
+    content = content,
+  )
 }

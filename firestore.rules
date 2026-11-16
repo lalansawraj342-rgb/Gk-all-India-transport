@@ -1,0 +1,223 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        ('email' in request.auth.token &&
+         request.auth.token.email == 'lraj65576@gmail.com' &&
+         request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidVehicleType(v) {
+      return v in [
+        'Tata Ace', 'Pickup', 'Tata 407', '6 Wheeler', '10 Wheeler',
+        '12 Wheeler', '14 Wheeler', '16 Wheeler', '18 Wheeler', '22 Wheeler',
+        'Container', 'Trailer', 'Dumper', 'All types of goods vehicles'
+      ];
+    }
+
+    function isValidBookingStatus(s) {
+      return s in [
+        'New Booking', 'Pending', 'Confirmed', 'Vehicle Assigned',
+        'Vehicle Dispatched', 'Delivered', 'Cancelled'
+      ];
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+             data.mobileNumber is string && data.mobileNumber.size() >= 10 && data.mobileNumber.size() <= 15 &&
+             data.preferredLanguage in ['en', 'hi'] &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 120)) &&
+             (!('city' in data) || data.city == null || (data.city is string && data.city.size() <= 80)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAdminUser(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+             data.addedBy is string && data.addedBy.size() >= 1 && data.addedBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidFleetVehicle(data) {
+      return data.vehicleNumber is string && data.vehicleNumber.size() >= 4 && data.vehicleNumber.size() <= 25 &&
+             isValidVehicleType(data.vehicleType) &&
+             data.driverName is string && data.driverName.size() >= 2 && data.driverName.size() <= 80 &&
+             data.driverPhone is string && data.driverPhone.size() >= 10 && data.driverPhone.size() <= 15 &&
+             data.availability in ['Available', 'On Trip', 'Maintenance'] &&
+             (!('currentCity' in data) || data.currentCity == null || (data.currentCity is string && data.currentCity.size() <= 80)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBooking(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.bookingCode is string && data.bookingCode.size() >= 4 && data.bookingCode.size() <= 24 &&
+             data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 80 &&
+             data.customerPhone is string && data.customerPhone.size() >= 10 && data.customerPhone.size() <= 15 &&
+             data.pickupLocation is string && data.pickupLocation.size() >= 2 && data.pickupLocation.size() <= 200 &&
+             data.deliveryLocation is string && data.deliveryLocation.size() >= 2 && data.deliveryLocation.size() <= 200 &&
+             data.bookingDateTimeMillis is int && data.bookingDateTimeMillis > 0 &&
+             data.bookingDateLabel is string && data.bookingDateLabel.size() >= 2 && data.bookingDateLabel.size() <= 50 &&
+             data.bookingTimeLabel is string && data.bookingTimeLabel.size() >= 2 && data.bookingTimeLabel.size() <= 30 &&
+             isValidVehicleType(data.vehicleType) &&
+             data.goodsDescription is string && data.goodsDescription.size() >= 2 && data.goodsDescription.size() <= 300 &&
+             data.goodsWeight is string && data.goodsWeight.size() >= 1 && data.goodsWeight.size() <= 40 &&
+             (!('specialInstructions' in data) || data.specialInstructions == null || (data.specialInstructions is string && data.specialInstructions.size() <= 400)) &&
+             isValidBookingStatus(data.status) &&
+             (!('assignedVehicleId' in data) || data.assignedVehicleId == null || (data.assignedVehicleId is string && data.assignedVehicleId.size() <= 128)) &&
+             (!('assignedVehicleNumber' in data) || data.assignedVehicleNumber == null || (data.assignedVehicleNumber is string && data.assignedVehicleNumber.size() <= 30)) &&
+             (!('assignedDriverName' in data) || data.assignedDriverName == null || (data.assignedDriverName is string && data.assignedDriverName.size() <= 80)) &&
+             (!('assignedDriverPhone' in data) || data.assignedDriverPhone == null || (data.assignedDriverPhone is string && data.assignedDriverPhone.size() <= 15)) &&
+             (!('adminNotes' in data) || data.adminNotes == null || (data.adminNotes is string && data.adminNotes.size() <= 300)) &&
+             (!('estimatedFare' in data) || data.estimatedFare == null || (data.estimatedFare is string && data.estimatedFare.size() <= 40)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'name', 'mobileNumber', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'mobileNumber', 'email', 'city', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobileNumber', 'email', 'city', 'preferredLanguage', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+                       isValidId(adminUid) &&
+                       incoming().uid == adminUid &&
+                       incoming().addedBy == request.auth.uid &&
+                       incoming().keys().hasAll(['uid', 'email', 'name', 'addedBy', 'createdAt']) &&
+                       incoming().keys().hasOnly(['uid', 'email', 'name', 'addedBy', 'createdAt']) &&
+                       isValidAdminUser(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(adminUid) &&
+                       isValidAdminUser(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'name', 'addedBy']);
+
+      allow delete: if isAdmin() && isValidId(adminUid);
+    }
+
+    match /vehicles/{vehicleId} {
+      allow get: if isAdmin() && isValidId(vehicleId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+                       isValidId(vehicleId) &&
+                       incoming().keys().hasAll(['vehicleNumber', 'vehicleType', 'driverName', 'driverPhone', 'availability', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['vehicleNumber', 'vehicleType', 'driverName', 'driverPhone', 'availability', 'currentCity', 'createdAt', 'updatedAt']) &&
+                       isValidFleetVehicle(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(vehicleId) &&
+                       isValidFleetVehicle(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['vehicleNumber', 'vehicleType', 'driverName', 'driverPhone', 'availability', 'currentCity', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(vehicleId);
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      // Customers can ONLY create bookings in 'New Booking' status (never auto-confirmed)
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'New Booking' &&
+                       (!('assignedVehicleId' in incoming()) || incoming().assignedVehicleId == '' || incoming().assignedVehicleId == null) &&
+                       (!('assignedVehicleNumber' in incoming()) || incoming().assignedVehicleNumber == '' || incoming().assignedVehicleNumber == null) &&
+                       (!('assignedDriverName' in incoming()) || incoming().assignedDriverName == '' || incoming().assignedDriverName == null) &&
+                       (!('assignedDriverPhone' in incoming()) || incoming().assignedDriverPhone == '' || incoming().assignedDriverPhone == null) &&
+                       (!('adminNotes' in incoming()) || incoming().adminNotes == '' || incoming().adminNotes == null) &&
+                       (!('estimatedFare' in incoming()) || incoming().estimatedFare == '' || incoming().estimatedFare == null) &&
+                       incoming().keys().hasAll([
+                         'userId', 'bookingCode', 'customerName', 'customerPhone',
+                         'pickupLocation', 'deliveryLocation', 'bookingDateTimeMillis',
+                         'bookingDateLabel', 'bookingTimeLabel', 'vehicleType',
+                         'goodsDescription', 'goodsWeight', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'bookingCode', 'customerName', 'customerPhone',
+                         'pickupLocation', 'deliveryLocation', 'bookingDateTimeMillis',
+                         'bookingDateLabel', 'bookingTimeLabel', 'vehicleType',
+                         'goodsDescription', 'goodsWeight', 'specialInstructions',
+                         'status', 'assignedVehicleId', 'assignedVehicleNumber',
+                         'assignedDriverName', 'assignedDriverPhone', 'adminNotes',
+                         'estimatedFare', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBooking(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt && (
+                         // Tier 1: Admin can update status, assign vehicle/driver, notes, fare
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'status', 'assignedVehicleId', 'assignedVehicleNumber',
+                            'assignedDriverName', 'assignedDriverPhone',
+                            'adminNotes', 'estimatedFare', 'updatedAt'
+                          ])) ||
+                         // Tier 2: Customer can only cancel their own unconfirmed booking
+                         (existing().userId == request.auth.uid &&
+                          (existing().status == 'New Booking' || existing().status == 'Pending') &&
+                          incoming().status == 'Cancelled' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+                       );
+
+      allow delete: if isAdmin() && isValidId(bookingId);
+    }
+  }
+}
