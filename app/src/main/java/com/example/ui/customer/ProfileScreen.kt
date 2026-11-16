@@ -3,6 +3,8 @@ package com.example.ui.customer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,8 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Translate
@@ -47,6 +51,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.data.model.SUPPORT_PHONE_NUMBERS
 import com.example.data.model.UserProfile
 import com.example.ui.components.dialPhoneNumber
 import com.example.ui.i18n.AppStrings
@@ -57,6 +62,7 @@ import com.example.ui.theme.ErrorRed
 import com.example.ui.theme.NavyDeep
 import com.example.ui.theme.PureWhite
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(
   strings: AppStrings,
@@ -64,7 +70,7 @@ fun ProfileScreen(
   userEmail: String,
   userProfile: UserProfile?,
   isSaving: Boolean,
-  onSaveProfile: (name: String, mobile: String, city: String, onSuccess: () -> Unit) -> Unit,
+  onSaveProfile: (name: String, mobile: String, city: String, address: String, altPhone: String, onSuccess: () -> Unit) -> Unit,
   onToggleLanguage: () -> Unit,
   onSignOut: () -> Unit,
 ) {
@@ -72,6 +78,8 @@ fun ProfileScreen(
   var name by remember(userProfile) { mutableStateOf(userProfile?.name ?: "") }
   var mobile by remember(userProfile) { mutableStateOf(userProfile?.mobileNumber ?: "") }
   var city by remember(userProfile) { mutableStateOf(userProfile?.city ?: "") }
+  var address by remember(userProfile) { mutableStateOf(userProfile?.address ?: "") }
+  var altPhone by remember(userProfile) { mutableStateOf(userProfile?.alternatePhone ?: "") }
   var feedback by remember { mutableStateOf<String?>(null) }
 
   Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -110,7 +118,7 @@ fun ProfileScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
-          Spacer(modifier = Modifier.height(16.dp))
+          Spacer(modifier = Modifier.height(14.dp))
 
           OutlinedTextField(
             value = name,
@@ -140,6 +148,18 @@ fun ProfileScreen(
           )
           Spacer(modifier = Modifier.height(12.dp))
           OutlinedTextField(
+            value = address,
+            onValueChange = {
+              address = it
+              feedback = null
+            },
+            label = { Text(strings.addressLabel) },
+            leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth().testTag("profile_address_input"),
+            shape = RoundedCornerShape(12.dp),
+          )
+          Spacer(modifier = Modifier.height(12.dp))
+          OutlinedTextField(
             value = city,
             onValueChange = {
               city = it
@@ -149,6 +169,20 @@ fun ProfileScreen(
             leadingIcon = { Icon(Icons.Filled.LocationCity, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("profile_city_input"),
+            shape = RoundedCornerShape(12.dp),
+          )
+          Spacer(modifier = Modifier.height(12.dp))
+          OutlinedTextField(
+            value = altPhone,
+            onValueChange = { input ->
+              altPhone = input.filter { it.isDigit() || it == '+' }.take(15)
+              feedback = null
+            },
+            label = { Text(strings.altPhoneLabel) },
+            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            modifier = Modifier.fillMaxWidth().testTag("profile_alt_phone_input"),
             shape = RoundedCornerShape(12.dp),
           )
 
@@ -172,7 +206,7 @@ fun ProfileScreen(
               } else if (mobile.filter { it.isDigit() }.length < 10) {
                 feedback = strings.invalidMobileError
               } else {
-                onSaveProfile(name.trim(), mobile.trim(), city.trim()) {
+                onSaveProfile(name.trim(), mobile.trim(), city.trim(), address.trim(), altPhone.trim()) {
                   feedback = strings.profileSavedToast
                 }
               }
@@ -195,7 +229,6 @@ fun ProfileScreen(
         }
       }
 
-      // Language & 24x7 Support Card
       Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = PureWhite),
@@ -217,22 +250,29 @@ fun ProfileScreen(
             Icon(Icons.Filled.SupportAgent, contentDescription = null, tint = NavyDeep)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-              text = "${strings.supportPhoneLabel}: +91 98100 00000",
+              text = strings.supportPhoneLabel,
               style = MaterialTheme.typography.titleSmall,
               color = NavyDeep,
               fontWeight = FontWeight.Bold,
             )
           }
 
-          Button(
-            onClick = { dialPhoneNumber(context, "+919810000000") },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NavyDeep),
+          FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
-            Icon(Icons.Filled.Call, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(strings.callSupportBtn)
+            SUPPORT_PHONE_NUMBERS.forEach { num ->
+              Button(
+                onClick = { dialPhoneNumber(context, num) },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NavyDeep),
+              ) {
+                Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(num, fontWeight = FontWeight.Bold)
+              }
+            }
           }
 
           OutlinedButton(

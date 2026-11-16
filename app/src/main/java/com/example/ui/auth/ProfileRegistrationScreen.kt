@@ -21,8 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
@@ -61,11 +63,13 @@ fun ProfileRegistrationScreen(
   errorMessage: String?,
   onToggleLanguage: () -> Unit,
   onSignOut: () -> Unit,
-  onSaveProfile: (name: String, mobile: String, city: String) -> Unit,
+  onSaveProfile: (name: String, mobile: String, city: String, address: String, altPhone: String) -> Unit,
 ) {
   var name by remember(initialName) { mutableStateOf(initialName) }
   var mobile by remember { mutableStateOf("") }
   var city by remember { mutableStateOf("") }
+  var address by remember { mutableStateOf("") }
+  var altPhone by remember { mutableStateOf("") }
   var validationError by remember { mutableStateOf<String?>(null) }
 
   Box(
@@ -108,7 +112,7 @@ fun ProfileRegistrationScreen(
           }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Card(
           shape = RoundedCornerShape(24.dp),
@@ -116,14 +120,14 @@ fun ProfileRegistrationScreen(
           elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
           modifier = Modifier.fillMaxWidth(),
         ) {
-          Column(modifier = Modifier.padding(24.dp)) {
+          Column(modifier = Modifier.padding(22.dp)) {
             Text(
               text = strings.mobileRegTitle,
               style = MaterialTheme.typography.headlineSmall,
               color = NavyDeep,
               fontWeight = FontWeight.Bold,
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
               text = strings.mobileRegSubtitle,
               style = MaterialTheme.typography.bodyMedium,
@@ -138,7 +142,7 @@ fun ProfileRegistrationScreen(
               )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
               value = name,
@@ -154,13 +158,12 @@ fun ProfileRegistrationScreen(
               shape = RoundedCornerShape(14.dp),
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
               value = mobile,
               onValueChange = { input ->
-                val filtered = input.filter { it.isDigit() || it == '+' }.take(15)
-                mobile = filtered
+                mobile = input.filter { it.isDigit() || it == '+' }.take(15)
                 validationError = null
               },
               label = { Text(strings.mobileLabel) },
@@ -173,7 +176,19 @@ fun ProfileRegistrationScreen(
               shape = RoundedCornerShape(14.dp),
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+              value = address,
+              onValueChange = { address = it },
+              label = { Text(strings.addressLabel) },
+              placeholder = { Text(strings.addressPlaceholder) },
+              leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
+              modifier = Modifier.fillMaxWidth().testTag("reg_address_input"),
+              shape = RoundedCornerShape(14.dp),
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
               value = city,
@@ -183,6 +198,20 @@ fun ProfileRegistrationScreen(
               leadingIcon = { Icon(Icons.Filled.LocationCity, contentDescription = null) },
               singleLine = true,
               modifier = Modifier.fillMaxWidth().testTag("reg_city_input"),
+              shape = RoundedCornerShape(14.dp),
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+              value = altPhone,
+              onValueChange = { altPhone = it.filter { ch -> ch.isDigit() || ch == '+' }.take(15) },
+              label = { Text(strings.altPhoneLabel) },
+              placeholder = { Text(strings.altPhonePlaceholder) },
+              leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+              modifier = Modifier.fillMaxWidth().testTag("reg_alt_phone_input"),
               shape = RoundedCornerShape(14.dp),
             )
 
@@ -196,7 +225,7 @@ fun ProfileRegistrationScreen(
               )
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
               onClick = {
@@ -204,12 +233,11 @@ fun ProfileRegistrationScreen(
                 when {
                   name.trim().length < 2 -> validationError = strings.invalidNameError
                   digits.length < 10 -> validationError = strings.invalidMobileError
-                  else -> onSaveProfile(name.trim(), mobile.trim(), city.trim())
+                  else -> onSaveProfile(name.trim(), mobile.trim(), city.trim(), address.trim(), altPhone.trim())
                 }
               },
               enabled = !isSaving,
-              modifier =
-                Modifier.fillMaxWidth().height(56.dp).testTag("reg_submit_button"),
+              modifier = Modifier.fillMaxWidth().height(56.dp).testTag("reg_submit_button"),
               shape = RoundedCornerShape(16.dp),
               colors =
                 ButtonDefaults.buttonColors(
@@ -232,7 +260,7 @@ fun ProfileRegistrationScreen(
               }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             TextButton(
               onClick = onSignOut,
               modifier = Modifier.align(Alignment.CenterHorizontally),

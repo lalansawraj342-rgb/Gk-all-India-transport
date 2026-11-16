@@ -34,17 +34,31 @@ service cloud.firestore {
 
     function isValidVehicleType(v) {
       return v in [
-        'Tata Ace', 'Pickup', 'Tata 407', '6 Wheeler', '10 Wheeler',
-        '12 Wheeler', '14 Wheeler', '16 Wheeler', '18 Wheeler', '22 Wheeler',
-        'Container', 'Trailer', 'Dumper', 'All types of goods vehicles'
+        'Tata Ace', 'Pickup Truck', 'Bolero Pickup', '407 Truck', '709 Truck',
+        '1109 Truck', '14 Wheeler Truck', '16 Wheeler Truck', '18 Wheeler Truck',
+        'Container Truck', 'Trailer Truck', 'Dumper', 'Other Commercial Vehicles',
+        // Legacy compatibility labels
+        'Pickup', 'Tata 407', '6 Wheeler', '10 Wheeler', '12 Wheeler',
+        '14 Wheeler', '16 Wheeler', '18 Wheeler', '22 Wheeler',
+        'Container', 'Trailer', 'All types of goods vehicles'
       ];
     }
 
     function isValidBookingStatus(s) {
       return s in [
-        'New Booking', 'Pending', 'Confirmed', 'Vehicle Assigned',
-        'Vehicle Dispatched', 'Delivered', 'Cancelled'
+        'Pending', 'Accepted', 'Vehicle Assigned', 'Driver Assigned',
+        'On The Way', 'Goods Picked Up', 'In Transit', 'Delivered', 'Cancelled',
+        // Legacy compatibility
+        'New Booking', 'Confirmed', 'Vehicle Dispatched'
       ];
+    }
+
+    function isValidPaymentStatus(s) {
+      return s in ['Unpaid', 'Advance Paid', 'Paid'];
+    }
+
+    function isValidPaymentMethod(m) {
+      return m in ['None', 'Cash', 'UPI', 'Online', 'Advance'];
     }
 
     function isValidUserProfile(data) {
@@ -54,6 +68,8 @@ service cloud.firestore {
              data.preferredLanguage in ['en', 'hi'] &&
              (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 120)) &&
              (!('city' in data) || data.city == null || (data.city is string && data.city.size() <= 80)) &&
+             (!('address' in data) || data.address == null || (data.address is string && data.address.size() <= 250)) &&
+             (!('alternatePhone' in data) || data.alternatePhone == null || (data.alternatePhone is string && data.alternatePhone.size() <= 15)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -77,6 +93,23 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidDriver(data) {
+      return data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+             data.mobileNumber is string && data.mobileNumber.size() >= 10 && data.mobileNumber.size() <= 15 &&
+             data.licenseNumber is string && data.licenseNumber.size() >= 4 && data.licenseNumber.size() <= 40 &&
+             (!('assignedVehicleId' in data) || data.assignedVehicleId == null || (data.assignedVehicleId is string && data.assignedVehicleId.size() <= 128)) &&
+             (!('assignedVehicleNumber' in data) || data.assignedVehicleNumber == null || (data.assignedVehicleNumber is string && data.assignedVehicleNumber.size() <= 30)) &&
+             data.availability in ['Available', 'On Trip', 'Off Duty'] &&
+             data.tripStatus in ['Idle', 'En Route to Pickup', 'Loading', 'In Transit', 'Completed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGoodsPhotos(data) {
+      return !('goodsPhotos' in data) || data.goodsPhotos == null ||
+             (data.goodsPhotos is list && data.goodsPhotos.size() <= 3);
+    }
+
     function isValidBooking(data) {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.bookingCode is string && data.bookingCode.size() >= 4 && data.bookingCode.size() <= 24 &&
@@ -90,16 +123,48 @@ service cloud.firestore {
              isValidVehicleType(data.vehicleType) &&
              data.goodsDescription is string && data.goodsDescription.size() >= 2 && data.goodsDescription.size() <= 300 &&
              data.goodsWeight is string && data.goodsWeight.size() >= 1 && data.goodsWeight.size() <= 40 &&
+             isValidGoodsPhotos(data) &&
              (!('specialInstructions' in data) || data.specialInstructions == null || (data.specialInstructions is string && data.specialInstructions.size() <= 400)) &&
              isValidBookingStatus(data.status) &&
              (!('assignedVehicleId' in data) || data.assignedVehicleId == null || (data.assignedVehicleId is string && data.assignedVehicleId.size() <= 128)) &&
              (!('assignedVehicleNumber' in data) || data.assignedVehicleNumber == null || (data.assignedVehicleNumber is string && data.assignedVehicleNumber.size() <= 30)) &&
+             (!('assignedDriverId' in data) || data.assignedDriverId == null || (data.assignedDriverId is string && data.assignedDriverId.size() <= 128)) &&
              (!('assignedDriverName' in data) || data.assignedDriverName == null || (data.assignedDriverName is string && data.assignedDriverName.size() <= 80)) &&
              (!('assignedDriverPhone' in data) || data.assignedDriverPhone == null || (data.assignedDriverPhone is string && data.assignedDriverPhone.size() <= 15)) &&
              (!('adminNotes' in data) || data.adminNotes == null || (data.adminNotes is string && data.adminNotes.size() <= 300)) &&
              (!('estimatedFare' in data) || data.estimatedFare == null || (data.estimatedFare is string && data.estimatedFare.size() <= 40)) &&
+             (!('totalFareAmount' in data) || data.totalFareAmount == null || (data.totalFareAmount is number && data.totalFareAmount >= 0)) &&
+             (!('paidAmount' in data) || data.paidAmount == null || (data.paidAmount is number && data.paidAmount >= 0)) &&
+             (!('paymentStatus' in data) || data.paymentStatus == null || isValidPaymentStatus(data.paymentStatus)) &&
+             (!('paymentMethod' in data) || data.paymentMethod == null || isValidPaymentMethod(data.paymentMethod)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPaymentRecord(data) {
+      return data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 128 &&
+             data.bookingCode is string && data.bookingCode.size() >= 4 && data.bookingCode.size() <= 24 &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 80 &&
+             data.amount is number && data.amount > 0 &&
+             data.method in ['Cash', 'UPI', 'Online', 'Advance'] &&
+             data.status in ['Pending Verification', 'Paid', 'Rejected'] &&
+             (!('referenceId' in data) || data.referenceId == null || (data.referenceId is string && data.referenceId.size() <= 80)) &&
+             (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 250)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNotification(data) {
+      return data.recipientUserId is string && data.recipientUserId.size() >= 1 && data.recipientUserId.size() <= 128 &&
+             data.senderUserId is string && data.senderUserId.size() >= 1 && data.senderUserId.size() <= 128 &&
+             (!('bookingId' in data) || data.bookingId == null || (data.bookingId is string && data.bookingId.size() <= 128)) &&
+             (!('bookingCode' in data) || data.bookingCode == null || (data.bookingCode is string && data.bookingCode.size() <= 24)) &&
+             data.type in ['BOOKING_REQUEST', 'BOOKING_ACCEPTED', 'VEHICLE_ASSIGNED', 'DELIVERY_COMPLETED', 'ADMIN_MESSAGE'] &&
+             data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+             data.message is string && data.message.size() >= 2 && data.message.size() <= 400 &&
+             data.isRead is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
     }
 
     match /users/{userId} {
@@ -111,7 +176,7 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll(['userId', 'name', 'mobileNumber', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'name', 'mobileNumber', 'email', 'city', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'mobileNumber', 'email', 'city', 'address', 'alternatePhone', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
                        isValidUserProfile(incoming());
 
       allow update: if isSignedIn() &&
@@ -120,7 +185,7 @@ service cloud.firestore {
                        isValidUserProfile(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobileNumber', 'email', 'city', 'preferredLanguage', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobileNumber', 'email', 'city', 'address', 'alternatePhone', 'preferredLanguage', 'updatedAt']);
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
@@ -166,17 +231,39 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(vehicleId);
     }
 
+    match /drivers/{driverId} {
+      allow get: if isAdmin() && isValidId(driverId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+                       isValidId(driverId) &&
+                       incoming().keys().hasAll(['name', 'mobileNumber', 'licenseNumber', 'availability', 'tripStatus', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'mobileNumber', 'licenseNumber', 'assignedVehicleId', 'assignedVehicleNumber', 'availability', 'tripStatus', 'createdAt', 'updatedAt']) &&
+                       isValidDriver(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(driverId) &&
+                       isValidDriver(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'mobileNumber', 'licenseNumber', 'assignedVehicleId', 'assignedVehicleNumber', 'availability', 'tripStatus', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(driverId);
+    }
+
     match /bookings/{bookingId} {
       allow get: if isSignedIn() && isValidId(bookingId) && (existing().userId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
 
-      // Customers can ONLY create bookings in 'New Booking' status (never auto-confirmed)
+      // Customers can ONLY create bookings in 'Pending' status with 'Unpaid' payment status
       allow create: if isSignedIn() &&
                        isValidId(bookingId) &&
                        incoming().userId == request.auth.uid &&
-                       incoming().status == 'New Booking' &&
+                       incoming().status == 'Pending' &&
+                       (!('paymentStatus' in incoming()) || incoming().paymentStatus == 'Unpaid') &&
+                       (!('paidAmount' in incoming()) || incoming().paidAmount == 0) &&
                        (!('assignedVehicleId' in incoming()) || incoming().assignedVehicleId == '' || incoming().assignedVehicleId == null) &&
                        (!('assignedVehicleNumber' in incoming()) || incoming().assignedVehicleNumber == '' || incoming().assignedVehicleNumber == null) &&
+                       (!('assignedDriverId' in incoming()) || incoming().assignedDriverId == '' || incoming().assignedDriverId == null) &&
                        (!('assignedDriverName' in incoming()) || incoming().assignedDriverName == '' || incoming().assignedDriverName == null) &&
                        (!('assignedDriverPhone' in incoming()) || incoming().assignedDriverPhone == '' || incoming().assignedDriverPhone == null) &&
                        (!('adminNotes' in incoming()) || incoming().adminNotes == '' || incoming().adminNotes == null) &&
@@ -191,10 +278,11 @@ service cloud.firestore {
                          'userId', 'bookingCode', 'customerName', 'customerPhone',
                          'pickupLocation', 'deliveryLocation', 'bookingDateTimeMillis',
                          'bookingDateLabel', 'bookingTimeLabel', 'vehicleType',
-                         'goodsDescription', 'goodsWeight', 'specialInstructions',
+                         'goodsDescription', 'goodsWeight', 'goodsPhotos', 'specialInstructions',
                          'status', 'assignedVehicleId', 'assignedVehicleNumber',
-                         'assignedDriverName', 'assignedDriverPhone', 'adminNotes',
-                         'estimatedFare', 'createdAt', 'updatedAt'
+                         'assignedDriverId', 'assignedDriverName', 'assignedDriverPhone',
+                         'adminNotes', 'estimatedFare', 'totalFareAmount', 'paidAmount',
+                         'paymentStatus', 'paymentMethod', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidBooking(incoming());
 
@@ -203,21 +291,73 @@ service cloud.firestore {
                        isValidBooking(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt && (
-                         // Tier 1: Admin can update status, assign vehicle/driver, notes, fare
+                         // Tier 1: Admin can update status, vehicle/driver, notes, fare, payment fields
                          (isAdmin() &&
                           incoming().diff(existing()).affectedKeys().hasOnly([
                             'status', 'assignedVehicleId', 'assignedVehicleNumber',
-                            'assignedDriverName', 'assignedDriverPhone',
-                            'adminNotes', 'estimatedFare', 'updatedAt'
+                            'assignedDriverId', 'assignedDriverName', 'assignedDriverPhone',
+                            'adminNotes', 'estimatedFare', 'totalFareAmount', 'paidAmount',
+                            'paymentStatus', 'paymentMethod', 'updatedAt'
                           ])) ||
-                         // Tier 2: Customer can only cancel their own unconfirmed booking
+                         // Tier 2: Customer can cancel their own un-dispatched booking
                          (existing().userId == request.auth.uid &&
-                          (existing().status == 'New Booking' || existing().status == 'Pending') &&
+                          (existing().status == 'Pending' || existing().status == 'Accepted' || existing().status == 'New Booking') &&
                           incoming().status == 'Cancelled' &&
                           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
                        );
 
       allow delete: if isAdmin() && isValidId(bookingId);
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isSignedIn() && isValidId(paymentId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(paymentId) &&
+                       incoming().keys().hasAll(['bookingId', 'bookingCode', 'userId', 'customerName', 'amount', 'method', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['bookingId', 'bookingCode', 'userId', 'customerName', 'amount', 'method', 'status', 'referenceId', 'notes', 'createdAt', 'updatedAt']) &&
+                       isValidPaymentRecord(incoming()) && (
+                         isAdmin() ||
+                         (incoming().userId == request.auth.uid && incoming().status == 'Pending Verification')
+                       );
+
+      allow update: if isAdmin() &&
+                       isValidId(paymentId) &&
+                       isValidPaymentRecord(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'referenceId', 'notes', 'amount', 'method', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(paymentId);
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && (existing().recipientUserId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.recipientUserId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() &&
+                       isValidId(notificationId) &&
+                       incoming().keys().hasAll(['recipientUserId', 'senderUserId', 'type', 'title', 'message', 'isRead', 'createdAt']) &&
+                       incoming().keys().hasOnly(['recipientUserId', 'senderUserId', 'bookingId', 'bookingCode', 'type', 'title', 'message', 'isRead', 'createdAt']) &&
+                       isValidNotification(incoming()) && (
+                         isAdmin() ||
+                         (incoming().senderUserId == request.auth.uid &&
+                          incoming().recipientUserId == 'ADMIN' &&
+                          incoming().type == 'BOOKING_REQUEST' &&
+                          incoming().isRead == false)
+                       );
+
+      allow update: if isSignedIn() &&
+                       isValidId(notificationId) &&
+                       isValidNotification(incoming()) &&
+                       incoming().createdAt == existing().createdAt && (
+                         isAdmin() ||
+                         (existing().recipientUserId == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['isRead']))
+                       );
+
+      allow delete: if isAdmin() && isValidId(notificationId);
     }
   }
 }

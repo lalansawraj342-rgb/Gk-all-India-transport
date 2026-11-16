@@ -1,5 +1,8 @@
 package com.example.ui.customer
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,8 +29,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory2
@@ -49,6 +54,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -59,11 +65,14 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +91,8 @@ import com.example.data.model.Booking
 import com.example.data.model.BookingStatus
 import com.example.data.model.UserProfile
 import com.example.data.model.VehicleType
+import com.example.ui.components.decodeBase64ToImageBitmap
+import com.example.ui.components.encodePhotoUriToBase64
 import com.example.ui.i18n.AppStrings
 import com.example.ui.i18n.PopularIndianTransportCities
 import com.example.ui.theme.EmeraldLightContainer
@@ -94,28 +106,55 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookVehicleScreen(
   strings: AppStrings,
   userProfile: UserProfile?,
+  preselectedVehicle: VehicleType? = null,
   isSubmitting: Boolean,
   errorMessage: String?,
-  onSubmitBooking: (Booking, onSuccess: () -> Unit) -> Unit,
+  onSubmitBooking: (Booking, onSuccess: (bookingCode: String) -> Unit) -> Unit,
   onNavigateToMyBookings: () -> Unit,
 ) {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+
   var customerName by remember(userProfile) { mutableStateOf(userProfile?.name ?: "") }
   var customerPhone by remember(userProfile) { mutableStateOf(userProfile?.mobileNumber ?: "") }
   var pickupLocation by remember { mutableStateOf("") }
   var deliveryLocation by remember { mutableStateOf("") }
-  var selectedVehicle by remember { mutableStateOf(VehicleType.TATA_ACE) }
+  var selectedVehicle by remember { mutableStateOf(preselectedVehicle ?: VehicleType.TATA_ACE) }
+  LaunchedEffect(preselectedVehicle) {
+    if (preselectedVehicle != null) selectedVehicle = preselectedVehicle
+  }
+
   var goodsDescription by remember { mutableStateOf("") }
   var goodsWeight by remember { mutableStateOf("") }
   var weightUnitTons by remember { mutableStateOf(true) }
   var specialInstructions by remember { mutableStateOf("") }
+  val goodsPhotos = remember { mutableStateListOf<String>() }
 
-  // Default booking schedule: tomorrow at 10:00 AM
+  val photoPickerLauncher =
+    rememberLauncherForActivityResult(
+      contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 2)
+    ) { uris ->
+      if (uris.isNotEmpty()) {
+        scope.launch {
+          val encoded =
+            withContext(Dispatchers.IO) {
+              uris.take(2).mapNotNull { encodePhotoUriToBase64(context, it) }
+            }
+          goodsPhotos.clear()
+          goodsPhotos.addAll(encoded)
+        }
+      }
+    }
+
   val defaultCal = remember {
     Calendar.getInstance().apply {
       add(Calendar.DAY_OF_YEAR, 1)
@@ -131,7 +170,7 @@ fun BookVehicleScreen(
   var showDatePicker by remember { mutableStateOf(false) }
   var showTimePicker by remember { mutableStateOf(false) }
   var formError by remember { mutableStateOf<String?>(null) }
-  var showSuccessDialog by remember { mutableStateOf(false) }
+  var createdBookingCode by remember { mutableStateOf<String?>(null) }
 
   val formattedDate =
     remember(selectedDateMillis) {
@@ -156,11 +195,10 @@ fun BookVehicleScreen(
           .padding(horizontal = 16.dp, vertical = 12.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      // Hero Banner Card
       Card(
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        modifier = Modifier.fillMaxWidth().height(150.dp),
+        modifier = Modifier.fillMaxWidth().height(136.dp),
       ) {
         Box(modifier = Modifier.fillMaxSize()) {
           Image(
@@ -174,7 +212,7 @@ fun BookVehicleScreen(
               Modifier.fillMaxSize()
                 .background(
                   Brush.horizontalGradient(
-                    colors = listOf(NavyDeep.copy(alpha = 0.88f), NavyDeep.copy(alpha = 0.35f))
+                    colors = listOf(NavyDeep.copy(alpha = 0.90f), NavyDeep.copy(alpha = 0.40f))
                   )
                 )
           )
@@ -205,7 +243,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Admin Approval Info Banner
       Surface(
         color = NavyContainer,
         shape = RoundedCornerShape(14.dp),
@@ -215,12 +252,7 @@ fun BookVehicleScreen(
           modifier = Modifier.padding(12.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          Icon(
-            imageVector = Icons.Filled.Info,
-            contentDescription = null,
-            tint = NavyDeep,
-            modifier = Modifier.size(20.dp),
-          )
+          Icon(Icons.Filled.Info, contentDescription = null, tint = NavyDeep, modifier = Modifier.size(20.dp))
           Spacer(modifier = Modifier.width(10.dp))
           Text(
             text = strings.bookingApprovalNote,
@@ -231,7 +263,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Section 1: Customer Contact
       SectionCard(title = strings.sectionContact) {
         OutlinedTextField(
           value = customerName,
@@ -263,7 +294,6 @@ fun BookVehicleScreen(
         )
       }
 
-      // Section 2: Pickup & Delivery Route
       SectionCard(title = strings.sectionRoute) {
         OutlinedTextField(
           value = pickupLocation,
@@ -311,9 +341,7 @@ fun BookVehicleScreen(
           },
           label = { Text(strings.deliveryLocationLabel) },
           placeholder = { Text(strings.deliveryPlaceholder) },
-          leadingIcon = {
-            Icon(Icons.Filled.LocationOn, contentDescription = null, tint = NavyDeep)
-          },
+          leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = NavyDeep) },
           modifier = Modifier.fillMaxWidth().testTag("booking_delivery_input"),
           shape = RoundedCornerShape(12.dp),
         )
@@ -335,7 +363,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Section 3: Booking Date & Time
       SectionCard(title = strings.sectionSchedule) {
         Row(
           modifier = Modifier.fillMaxWidth(),
@@ -389,7 +416,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Section 4: All 14 Vehicle Types
       SectionCard(title = strings.sectionVehicleType) {
         FlowRow(
           modifier = Modifier.fillMaxWidth(),
@@ -443,7 +469,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Section 5: Goods Description, Weight & Instructions
       SectionCard(title = strings.sectionGoodsDetails) {
         OutlinedTextField(
           value = goodsDescription,
@@ -504,6 +529,62 @@ fun BookVehicleScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        Text(
+          text = strings.goodsPhotosLabel,
+          style = MaterialTheme.typography.labelMedium,
+          color = NavyDeep,
+          fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          OutlinedButton(
+            onClick = {
+              photoPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
+            },
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.testTag("upload_goods_photos_btn"),
+          ) {
+            Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, tint = EmeraldPrimary)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(strings.addGoodsPhotosBtn)
+          }
+
+          goodsPhotos.forEachIndexed { index, encoded ->
+            val bmp = remember(encoded) { decodeBase64ToImageBitmap(encoded) }
+            if (bmp != null) {
+              Box(modifier = Modifier.size(64.dp)) {
+                Image(
+                  bitmap = bmp,
+                  contentDescription = "Selected goods photo",
+                  contentScale = ContentScale.Crop,
+                  modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                )
+                IconButton(
+                  onClick = { goodsPhotos.removeAt(index) },
+                  modifier = Modifier.align(Alignment.TopEnd).size(22.dp),
+                ) {
+                  Surface(color = NavyDeep.copy(alpha = 0.8f), shape = RoundedCornerShape(12.dp)) {
+                    Icon(
+                      Icons.Filled.Close,
+                      contentDescription = "Remove photo",
+                      tint = PureWhite,
+                      modifier = Modifier.size(14.dp).padding(2.dp),
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         OutlinedTextField(
           value = specialInstructions,
           onValueChange = { specialInstructions = it },
@@ -532,7 +613,6 @@ fun BookVehicleScreen(
         }
       }
 
-      // Large BOOK NOW Button
       Button(
         onClick = {
           val digits = customerPhone.filter { it.isDigit() }
@@ -566,16 +646,18 @@ fun BookVehicleScreen(
                   vehicleType = selectedVehicle.label,
                   goodsDescription = goodsDescription.trim(),
                   goodsWeight = weightFormatted,
+                  goodsPhotos = goodsPhotos.toList(),
                   specialInstructions = specialInstructions.trim(),
-                  status = BookingStatus.NEW_BOOKING.label,
+                  status = BookingStatus.PENDING.label,
                 )
-              onSubmitBooking(booking) {
+              onSubmitBooking(booking) { code ->
                 pickupLocation = ""
                 deliveryLocation = ""
                 goodsDescription = ""
                 goodsWeight = ""
                 specialInstructions = ""
-                showSuccessDialog = true
+                goodsPhotos.clear()
+                createdBookingCode = code
               }
             }
           }
@@ -603,11 +685,7 @@ fun BookVehicleScreen(
             fontWeight = FontWeight.Bold,
           )
         } else {
-          Icon(
-            imageVector = Icons.Filled.LocalShipping,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-          )
+          Icon(Icons.Filled.LocalShipping, contentDescription = null, modifier = Modifier.size(24.dp))
           Spacer(modifier = Modifier.width(12.dp))
           Text(
             text = strings.bookNowButton,
@@ -671,9 +749,9 @@ fun BookVehicleScreen(
     )
   }
 
-  if (showSuccessDialog) {
+  createdBookingCode?.let { code ->
     AlertDialog(
-      onDismissRequest = { showSuccessDialog = false },
+      onDismissRequest = { createdBookingCode = null },
       icon = {
         Icon(
           imageVector = Icons.Filled.CheckCircle,
@@ -689,11 +767,24 @@ fun BookVehicleScreen(
           color = NavyDeep,
         )
       },
-      text = { Text(text = strings.bookingSuccessMessage) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Surface(color = EmeraldLightContainer, shape = RoundedCornerShape(10.dp)) {
+            Text(
+              text = "${strings.bookingCodeConfirmPrefix} $code",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.ExtraBold,
+              color = EmeraldOnContainer,
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+          }
+          Text(text = strings.bookingSuccessMessage)
+        }
+      },
       confirmButton = {
         Button(
           onClick = {
-            showSuccessDialog = false
+            createdBookingCode = null
             onNavigateToMyBookings()
           },
           colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
@@ -702,7 +793,7 @@ fun BookVehicleScreen(
         }
       },
       dismissButton = {
-        TextButton(onClick = { showSuccessDialog = false }) { Text(strings.bookAnother) }
+        TextButton(onClick = { createdBookingCode = null }) { Text(strings.bookAnother) }
       },
     )
   }

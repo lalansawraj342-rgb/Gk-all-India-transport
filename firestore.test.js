@@ -32,11 +32,16 @@ function validBookingPayload(userId, overrides = {}) {
     bookingDateTimeMillis: 1795000000000,
     bookingDateLabel: "18 Nov 2026",
     bookingTimeLabel: "10:30 AM",
-    vehicleType: "10 Wheeler",
+    vehicleType: "14 Wheeler Truck",
     goodsDescription: "Industrial machinery crates",
-    goodsWeight: "14 Tons",
+    goodsWeight: "25 Tons",
+    goodsPhotos: [],
     specialInstructions: "Need tarpaulin cover",
-    status: "New Booking",
+    status: "Pending",
+    paymentStatus: "Unpaid",
+    paymentMethod: "None",
+    totalFareAmount: 0,
+    paidAmount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -67,14 +72,17 @@ beforeEach(async () => {
   }
 });
 
-test("Unauthenticated user cannot read or write bookings, users, or vehicles", async () => {
+test("Unauthenticated user cannot read or write bookings, users, vehicles, drivers, payments, or notifications", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(unauthDb.collection("bookings").get());
   await assertFails(unauthDb.collection("users").doc(ALICE_UID).get());
   await assertFails(unauthDb.collection("vehicles").get());
+  await assertFails(unauthDb.collection("drivers").get());
+  await assertFails(unauthDb.collection("payments").get());
+  await assertFails(unauthDb.collection("notifications").get());
 });
 
-test("Customer can create and read own user profile, cannot read other user's profile", async () => {
+test("Customer can create and read own user profile with address, cannot read other user's profile", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const now = pastTimestamp();
 
@@ -83,6 +91,9 @@ test("Customer can create and read own user profile, cannot read other user's pr
       userId: ALICE_UID,
       name: "Alice Sharma",
       mobileNumber: "9876543210",
+      city: "Delhi",
+      address: "Plot 14, Okhla Industrial Area Phase 2",
+      alternatePhone: "9142631727",
       preferredLanguage: "hi",
       createdAt: now,
       updatedAt: now,
@@ -96,17 +107,24 @@ test("Customer can create and read own user profile, cannot read other user's pr
   await assertFails(bobDb.collection("users").get());
 });
 
-test("Customer can create booking ONLY with New Booking status (auto-confirm blocked)", async () => {
+test("Customer can create booking ONLY with Pending status and Unpaid paymentStatus", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
 
   await assertSucceeds(
     aliceDb.collection("bookings").doc("b1").set(validBookingPayload(ALICE_UID))
   );
 
-  // Customer trying to create a pre-confirmed booking MUST FAIL
+  // Customer trying to create a pre-accepted booking MUST FAIL
   await assertFails(
     aliceDb.collection("bookings").doc("b2").set(
-      validBookingPayload(ALICE_UID, { status: "Confirmed" })
+      validBookingPayload(ALICE_UID, { status: "Accepted" })
+    )
+  );
+
+  // Customer trying to mark booking Paid on create MUST FAIL
+  await assertFails(
+    aliceDb.collection("bookings").doc("b2b").set(
+      validBookingPayload(ALICE_UID, { paymentStatus: "Paid" })
     )
   );
 
@@ -133,40 +151,108 @@ test("Customer query isolation: own filtered query succeeds, unfiltered or cross
     aliceDb.collection("bookings").doc("b_alice").set(validBookingPayload(ALICE_UID))
   );
 
-  // Filtered by own userId succeeds
   await assertSucceeds(
     aliceDb.collection("bookings").where("userId", "==", ALICE_UID).get()
   );
 
-  // Unfiltered list by non-admin fails (rules are not filters)
   await assertFails(aliceDb.collection("bookings").get());
-
-  // Cross-user get fails
   await assertFails(bobDb.collection("bookings").doc("b_alice").get());
 });
 
-test("Customer cannot self-confirm booking, can cancel New Booking only", async () => {
+test("Customer cannot self-accept booking, can cancel Pending booking only", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
 
   await assertSucceeds(
     aliceDb.collection("bookings").doc("b_status").set(validBookingPayload(ALICE_UID))
   );
 
-  // Self-confirming must fail
   await assertFails(
     aliceDb.collection("bookings").doc("b_status").update({
-      status: "Confirmed",
+      status: "Accepted",
       updatedAt: pastTimestamp(),
     })
   );
 
-  // Customer cancelling New Booking succeeds
   await assertSucceeds(
     aliceDb.collection("bookings").doc("b_status").update({
       status: "Cancelled",
       updatedAt: pastTimestamp(),
     })
   );
+});
+
+test("Customer can submit payment request in Pending Verification and read own payments, cannot auto-mark Paid", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = pastTimestamp();
+
+  await assertSucceeds(
+    aliceDb.collection("payments").doc("pay_1").set({
+      bookingId: "b1",
+      bookingCode: "GK-1001",
+      userId: ALICE_UID,
+      customerName: "Alice Sharma",
+      amount: 5000,
+      method: "UPI",
+      status: "Pending Verification",
+      referenceId: "UTR12345678",
+      notes: "Advance payment",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  await assertFails(
+    aliceDb.collection("payments").doc("pay_2").set({
+      bookingId: "b1",
+      bookingCode: "GK-1001",
+      userId: ALICE_UID,
+      customerName: "Alice Sharma",
+      amount: 5000,
+      method: "UPI",
+      status: "Paid",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  await assertSucceeds(aliceDb.collection("payments").where("userId", "==", ALICE_UID).get());
+  await assertFails(bobDb.collection("payments").doc("pay_1").get());
+});
+
+test("Customer can send BOOKING_REQUEST notification to ADMIN and read own notifications", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = pastTimestamp();
+
+  await assertSucceeds(
+    aliceDb.collection("notifications").doc("n1").set({
+      recipientUserId: "ADMIN",
+      senderUserId: ALICE_UID,
+      bookingId: "b1",
+      bookingCode: "GK-1001",
+      type: "BOOKING_REQUEST",
+      title: "New Booking Request",
+      message: "Alice requested a 14 Wheeler Truck",
+      isRead: false,
+      createdAt: now,
+    })
+  );
+
+  // Customer cannot send fake BOOKING_ACCEPTED to another user
+  await assertFails(
+    aliceDb.collection("notifications").doc("n2").set({
+      recipientUserId: BOB_UID,
+      senderUserId: ALICE_UID,
+      type: "BOOKING_ACCEPTED",
+      title: "Fake",
+      message: "Fake",
+      isRead: false,
+      createdAt: now,
+    })
+  );
+
+  await assertFails(bobDb.collection("notifications").doc("n1").get());
 });
 
 test("Email spoofing test: unverified admin email is rejected", async () => {
@@ -177,11 +263,12 @@ test("Email spoofing test: unverified admin email is rejected", async () => {
 
   await assertFails(spoofAdminDb.collection("bookings").get());
   await assertFails(spoofAdminDb.collection("vehicles").get());
+  await assertFails(spoofAdminDb.collection("drivers").get());
+  await assertFails(spoofAdminDb.collection("users").get());
 });
 
-test("Verified Admin can list all bookings, confirm, assign vehicle, and manage fleet", async () => {
+test("Verified Admin can manage bookings, drivers, vehicles, payments, customers, and notifications", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
-
   await assertSucceeds(
     aliceDb.collection("bookings").doc("b_admin_test").set(validBookingPayload(ALICE_UID))
   );
@@ -191,15 +278,14 @@ test("Verified Admin can list all bookings, confirm, assign vehicle, and manage 
     email_verified: true,
   }).firestore();
 
-  // Admin can list all bookings
   await assertSucceeds(adminDb.collection("bookings").get());
+  await assertSucceeds(adminDb.collection("users").get());
 
-  // Admin can add fleet vehicle
   const now = pastTimestamp();
   await assertSucceeds(
     adminDb.collection("vehicles").doc("v1").set({
       vehicleNumber: "MH-12-TR-4590",
-      vehicleType: "10 Wheeler",
+      vehicleType: "14 Wheeler Truck",
       driverName: "Suresh Yadav",
       driverPhone: "9811122233",
       availability: "Available",
@@ -209,16 +295,48 @@ test("Verified Admin can list all bookings, confirm, assign vehicle, and manage 
     })
   );
 
-  // Admin can confirm and assign vehicle
   await assertSucceeds(
-    adminDb.collection("bookings").doc("b_admin_test").update({
-      status: "Vehicle Assigned",
+    adminDb.collection("drivers").doc("d1").set({
+      name: "Suresh Yadav",
+      mobileNumber: "9811122233",
+      licenseNumber: "MH12-20190045678",
       assignedVehicleId: "v1",
       assignedVehicleNumber: "MH-12-TR-4590",
+      availability: "Available",
+      tripStatus: "Idle",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("bookings").doc("b_admin_test").update({
+      status: "In Transit",
+      assignedVehicleId: "v1",
+      assignedVehicleNumber: "MH-12-TR-4590",
+      assignedDriverId: "d1",
       assignedDriverName: "Suresh Yadav",
       assignedDriverPhone: "9811122233",
       estimatedFare: "₹38,500",
+      totalFareAmount: 38500,
+      paidAmount: 10000,
+      paymentStatus: "Advance Paid",
+      paymentMethod: "UPI",
       updatedAt: pastTimestamp(),
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("notifications").doc("n_cust").set({
+      recipientUserId: ALICE_UID,
+      senderUserId: ADMIN_UID,
+      bookingId: "b_admin_test",
+      bookingCode: "GK-2026-1001",
+      type: "VEHICLE_ASSIGNED",
+      title: "Vehicle Assigned",
+      message: "MH-12-TR-4590 assigned to your booking",
+      isRead: false,
+      createdAt: pastTimestamp(),
     })
   );
 });

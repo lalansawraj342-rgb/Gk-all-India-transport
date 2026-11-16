@@ -3,6 +3,9 @@ package com.example.data.repository
 import com.example.base.FirestoreEmulatorTestBase
 import com.example.data.model.Booking
 import com.example.data.model.BookingStatus
+import com.example.data.model.PaymentMethod
+import com.example.data.model.PaymentRecordStatus
+import com.example.data.model.PaymentStatus
 import com.example.data.model.VehicleType
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.first
@@ -16,11 +19,11 @@ import org.junit.Test
 class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
 
   @Test
-  fun createBooking_forcesNewBookingStatus_andAppearsInCustomerStream() = runBlocking {
+  fun createBooking_forcesPendingStatus_andAppearsInCustomerStream() = runBlocking {
     val uid = signInTestUser(ALICE_EMAIL)
     val repo = TransportRepository(firestore, auth)
 
-    // Even if client passes CONFIRMED, createBooking must force NEW_BOOKING and succeed
+    // Even if client passes ACCEPTED, createBooking must force PENDING & UNPAID and succeed
     val booking =
       Booking(
         userId = uid,
@@ -31,29 +34,33 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
         bookingDateTimeMillis = 1795000000000L,
         bookingDateLabel = "18 Nov 2026",
         bookingTimeLabel = "09:00 AM",
-        vehicleType = VehicleType.TATA_407.label,
+        vehicleType = VehicleType.TRUCK_407.label,
         goodsDescription = "Steel pipes & fittings",
         goodsWeight = "2.5 Tons",
+        goodsPhotos = listOf("data:image/jpeg;base64,/9j/4AAQSkZJRg=="),
         specialInstructions = "Call before arrival",
-        status = BookingStatus.CONFIRMED.label,
+        status = BookingStatus.ACCEPTED.label,
       )
 
     val createResult = withTimeout(DEFAULT_TIMEOUT_MS) { repo.createBooking(booking) }
-    assertTrue("Expected booking creation to succeed", createResult.isSuccess)
-    val bookingId = createResult.getOrThrow()
+    assertTrue("Expected booking creation to succeed: ${createResult.exceptionOrNull()}", createResult.isSuccess)
+    val (bookingId, bookingCode) = createResult.getOrThrow()
     assertTrue(bookingId.isNotBlank())
+    assertTrue(bookingCode.startsWith("GK-"))
 
     val observed =
       withTimeout(FLOW_TIMEOUT_MS) {
         repo.observeCustomerBookings(uid).first { list -> list.any { it.id == bookingId } }
       }
     val created = observed.first { it.id == bookingId }
-    assertEquals(BookingStatus.NEW_BOOKING.label, created.status)
+    assertEquals(BookingStatus.PENDING.label, created.status)
+    assertEquals(PaymentStatus.UNPAID.label, created.paymentStatus)
     assertEquals("Ramesh Verma", created.customerName)
+    assertEquals(1, created.goodsPhotos.size)
   }
 
   @Test
-  fun saveUserProfile_andObserveUserProfile_roundTripsCleanly() = runBlocking {
+  fun saveUserProfile_withAddressAndAltPhone_roundTripsCleanly() = runBlocking {
     val uid = signInTestUser(ALICE_EMAIL)
     val repo = TransportRepository(firestore, auth)
 
@@ -64,6 +71,8 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
           mobileNumber = "9876543210",
           email = ALICE_EMAIL,
           city = "Delhi",
+          address = "Plot 12, Transport Nagar, Delhi",
+          alternatePhone = "9142631727",
           preferredLanguage = "hi",
         )
       }
@@ -74,14 +83,63 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
     assertNotNull(profile)
     assertEquals("Ramesh Verma", profile?.name)
     assertEquals("9876543210", profile?.mobileNumber)
+    assertEquals("Plot 12, Transport Nagar, Delhi", profile?.address)
+    assertEquals("9142631727", profile?.alternatePhone)
     assertEquals("hi", profile?.preferredLanguage)
+  }
+
+  @Test
+  fun submitCustomerPayment_createsPendingVerification_andAppearsInStream() = runBlocking {
+    val uid = signInTestUser(ALICE_EMAIL)
+    val repo = TransportRepository(firestore, auth)
+    val (bookingId, bookingCode) =
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        repo
+          .createBooking(
+            Booking(
+              userId = uid,
+              customerName = "Ramesh Verma",
+              customerPhone = "9876543210",
+              pickupLocation = "Delhi",
+              deliveryLocation = "Patna",
+              bookingDateTimeMillis = 1795000000000L,
+              bookingDateLabel = "20 Nov 2026",
+              bookingTimeLabel = "10:00 AM",
+              vehicleType = VehicleType.CONTAINER_TRUCK.label,
+              goodsDescription = "Electronics",
+              goodsWeight = "8 Tons",
+            )
+          )
+          .getOrThrow()
+      }
+
+    val payResult =
+      withTimeout(DEFAULT_TIMEOUT_MS) {
+        repo.submitCustomerPayment(
+          booking = Booking(id = bookingId, bookingCode = bookingCode, customerName = "Ramesh Verma"),
+          amount = 15000.0,
+          method = PaymentMethod.UPI.label,
+          referenceId = "UTR99887766",
+          notes = "Advance via UPI",
+        )
+      }
+    assertTrue("Expected payment submission to succeed: ${payResult.exceptionOrNull()}", payResult.isSuccess)
+    val payId = payResult.getOrThrow()
+
+    val payments =
+      withTimeout(FLOW_TIMEOUT_MS) {
+        repo.observeCustomerPayments(uid).first { list -> list.any { it.id == payId } }
+      }
+    val saved = payments.first { it.id == payId }
+    assertEquals(PaymentRecordStatus.PENDING_VERIFICATION.label, saved.status)
+    assertEquals(15000.0, saved.amount, 0.01)
   }
 
   @Test
   fun customerBooking_crossUserAccess_failsWithPermissionDenied() = runBlocking {
     val aliceUid = signInTestUser(ALICE_EMAIL)
     val aliceRepo = TransportRepository(firestore, auth)
-    val bookingId =
+    val (bookingId, _) =
       withTimeout(DEFAULT_TIMEOUT_MS) {
         aliceRepo
           .createBooking(
@@ -112,10 +170,10 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
   }
 
   @Test
-  fun customerBooking_cancelOwnNewBooking_succeeds() = runBlocking {
+  fun customerBooking_cancelOwnPendingBooking_succeeds() = runBlocking {
     val uid = signInTestUser(ALICE_EMAIL)
     val repo = TransportRepository(firestore, auth)
-    val bookingId =
+    val (bookingId, _) =
       withTimeout(DEFAULT_TIMEOUT_MS) {
         repo
           .createBooking(
@@ -128,7 +186,7 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
               bookingDateTimeMillis = 1795000000000L,
               bookingDateLabel = "20 Nov 2026",
               bookingTimeLabel = "02:00 PM",
-              vehicleType = VehicleType.PICKUP.label,
+              vehicleType = VehicleType.PICKUP_TRUCK.label,
               goodsDescription = "Textile bales",
               goodsWeight = "1.5 Tons",
             )
@@ -137,7 +195,7 @@ class TransportRepositoryRuleTest : FirestoreEmulatorTestBase() {
       }
 
     val cancelResult = withTimeout(DEFAULT_TIMEOUT_MS) { repo.cancelCustomerBooking(bookingId) }
-    assertTrue("Customer cancelling own New Booking should succeed", cancelResult.isSuccess)
+    assertTrue("Customer cancelling own Pending booking should succeed", cancelResult.isSuccess)
   }
 
   @Test

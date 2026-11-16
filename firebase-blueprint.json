@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Registered customer profile with verified mobile number and language preference.",
+      "description": "Registered customer profile with mobile number, address, contact details, and language preference.",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "Firebase Auth UID of the user." },
@@ -10,104 +10,155 @@
         "mobileNumber": { "type": "string", "description": "Customer 10-digit or +91 mobile number." },
         "email": { "type": "string", "description": "Customer email address from Google Sign-In." },
         "city": { "type": "string", "description": "Customer home city." },
+        "address": { "type": "string", "description": "Customer full street/business address." },
+        "alternatePhone": { "type": "string", "description": "Optional alternate contact number." },
         "preferredLanguage": { "type": "string", "enum": ["en", "hi"], "description": "UI language preference." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation (FieldValue.serverTimestamp())." },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update (FieldValue.serverTimestamp())." }
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
       },
       "required": ["userId", "name", "mobileNumber", "preferredLanguage", "createdAt", "updatedAt"]
     },
     "AdminUser": {
       "title": "AdminUser",
-      "description": "Authorized G.K. All India Transport administrator record.",
+      "description": "Authorized G.K. All Transport administrator record.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string", "description": "Firebase Auth UID of the admin." },
-        "email": { "type": "string", "description": "Admin Google account email." },
-        "name": { "type": "string", "description": "Admin display name." },
-        "addedBy": { "type": "string", "description": "UID of admin who granted access." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "name", "addedBy", "createdAt"]
     },
     "FleetVehicle": {
       "title": "FleetVehicle",
-      "description": "Company transport vehicle and driver available for booking assignment.",
+      "description": "Company transport vehicle registered in fleet.",
       "type": "object",
       "properties": {
-        "vehicleNumber": { "type": "string", "description": "Registration plate number (e.g., MH-12-TR-4590)." },
+        "vehicleNumber": { "type": "string" },
         "vehicleType": {
           "type": "string",
           "enum": [
-            "Tata Ace", "Pickup", "Tata 407", "6 Wheeler", "10 Wheeler",
-            "12 Wheeler", "14 Wheeler", "16 Wheeler", "18 Wheeler", "22 Wheeler",
-            "Container", "Trailer", "Dumper", "All types of goods vehicles"
-          ],
-          "description": "Goods vehicle category."
+            "Tata Ace", "Pickup Truck", "Bolero Pickup", "407 Truck", "709 Truck",
+            "1109 Truck", "14 Wheeler Truck", "16 Wheeler Truck", "18 Wheeler Truck",
+            "Container Truck", "Trailer Truck", "Dumper", "Other Commercial Vehicles"
+          ]
         },
-        "driverName": { "type": "string", "description": "Assigned driver full name." },
-        "driverPhone": { "type": "string", "description": "Assigned driver contact number." },
-        "availability": { "type": "string", "enum": ["Available", "On Trip", "Maintenance"], "description": "Current vehicle availability." },
-        "currentCity": { "type": "string", "description": "Current hub or city location." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+        "driverName": { "type": "string" },
+        "driverPhone": { "type": "string" },
+        "availability": { "type": "string", "enum": ["Available", "On Trip", "Maintenance"] },
+        "currentCity": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["vehicleNumber", "vehicleType", "driverName", "driverPhone", "availability", "createdAt", "updatedAt"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "Driver profile with driving licence, assigned vehicle, availability, and trip status.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "licenseNumber": { "type": "string" },
+        "assignedVehicleId": { "type": "string" },
+        "assignedVehicleNumber": { "type": "string" },
+        "availability": { "type": "string", "enum": ["Available", "On Trip", "Off Duty"] },
+        "tripStatus": { "type": "string", "enum": ["Idle", "En Route to Pickup", "Loading", "In Transit", "Completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "mobileNumber", "licenseNumber", "availability", "tripStatus", "createdAt", "updatedAt"]
     },
     "Booking": {
       "title": "Booking",
       "description": "Goods vehicle booking submitted by a customer and managed by Admin.",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "description": "Firebase Auth UID of the customer who placed the booking." },
-        "bookingCode": { "type": "string", "description": "Human-readable booking reference code." },
-        "customerName": { "type": "string", "description": "Customer full name." },
-        "customerPhone": { "type": "string", "description": "Customer mobile number." },
-        "pickupLocation": { "type": "string", "description": "Origin pickup city and address." },
-        "deliveryLocation": { "type": "string", "description": "Destination delivery city and address." },
-        "bookingDateTimeMillis": { "type": "integer", "description": "Scheduled pickup date and time in epoch milliseconds." },
-        "bookingDateLabel": { "type": "string", "description": "Formatted pickup date string." },
-        "bookingTimeLabel": { "type": "string", "description": "Formatted pickup time string." },
-        "vehicleType": {
-          "type": "string",
-          "enum": [
-            "Tata Ace", "Pickup", "Tata 407", "6 Wheeler", "10 Wheeler",
-            "12 Wheeler", "14 Wheeler", "16 Wheeler", "18 Wheeler", "22 Wheeler",
-            "Container", "Trailer", "Dumper", "All types of goods vehicles"
-          ],
-          "description": "Requested goods vehicle type."
-        },
-        "goodsDescription": { "type": "string", "description": "Description of cargo/goods to transport." },
-        "goodsWeight": { "type": "string", "description": "Approximate weight with unit (e.g., 12 Tons)." },
-        "specialInstructions": { "type": "string", "description": "Optional special handling or loading instructions." },
+        "userId": { "type": "string" },
+        "bookingCode": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "pickupLocation": { "type": "string" },
+        "deliveryLocation": { "type": "string" },
+        "bookingDateTimeMillis": { "type": "integer" },
+        "bookingDateLabel": { "type": "string" },
+        "bookingTimeLabel": { "type": "string" },
+        "vehicleType": { "type": "string" },
+        "goodsDescription": { "type": "string" },
+        "goodsWeight": { "type": "string" },
+        "goodsPhotos": { "type": "array", "items": { "type": "string" } },
+        "specialInstructions": { "type": "string" },
         "status": {
           "type": "string",
           "enum": [
-            "New Booking", "Pending", "Confirmed", "Vehicle Assigned",
-            "Vehicle Dispatched", "Delivered", "Cancelled"
-          ],
-          "description": "Lifecycle status of the booking. Must start as New Booking."
+            "Pending", "Accepted", "Vehicle Assigned", "Driver Assigned",
+            "On The Way", "Goods Picked Up", "In Transit", "Delivered", "Cancelled"
+          ]
         },
-        "assignedVehicleId": { "type": "string", "description": "Document ID of assigned FleetVehicle." },
-        "assignedVehicleNumber": { "type": "string", "description": "Registration number of assigned vehicle." },
-        "assignedDriverName": { "type": "string", "description": "Driver name assigned by Admin." },
-        "assignedDriverPhone": { "type": "string", "description": "Driver mobile number assigned by Admin." },
-        "adminNotes": { "type": "string", "description": "Optional remarks from Admin." },
-        "estimatedFare": { "type": "string", "description": "Optional fare quote provided by Admin." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+        "assignedVehicleId": { "type": "string" },
+        "assignedVehicleNumber": { "type": "string" },
+        "assignedDriverId": { "type": "string" },
+        "assignedDriverName": { "type": "string" },
+        "assignedDriverPhone": { "type": "string" },
+        "adminNotes": { "type": "string" },
+        "estimatedFare": { "type": "string" },
+        "totalFareAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["Unpaid", "Advance Paid", "Paid"] },
+        "paymentMethod": { "type": "string", "enum": ["None", "Cash", "UPI", "Online", "Advance"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "userId", "bookingCode", "customerName", "customerPhone",
         "pickupLocation", "deliveryLocation", "bookingDateTimeMillis",
         "bookingDateLabel", "bookingTimeLabel", "vehicleType",
-        "goodsDescription", "goodsWeight", "status", "createdAt", "updatedAt"
+        "goodsDescription", "goodsWeight", "status", "paymentStatus", "createdAt", "updatedAt"
       ]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "Payment transaction for a booking (Cash, UPI, Online, or Advance).",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string" },
+        "bookingCode": { "type": "string" },
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["Cash", "UPI", "Online", "Advance"] },
+        "status": { "type": "string", "enum": ["Pending Verification", "Paid", "Rejected"] },
+        "referenceId": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookingId", "bookingCode", "userId", "customerName", "amount", "method", "status", "createdAt", "updatedAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "In-app and push notification record for booking events and admin messages.",
+      "type": "object",
+      "properties": {
+        "recipientUserId": { "type": "string" },
+        "senderUserId": { "type": "string" },
+        "bookingId": { "type": "string" },
+        "bookingCode": { "type": "string" },
+        "type": { "type": "string", "enum": ["BOOKING_REQUEST", "BOOKING_ACCEPTED", "VEHICLE_ASSIGNED", "DELIVERY_COMPLETED", "ADMIN_MESSAGE"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientUserId", "senderUserId", "type", "title", "message", "isRead", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
-      "description": "Customer profile records isolated by userId."
+      "description": "Customer profile records isolated by userId, readable by Admin for customer management."
     },
     "/admins/{adminUid}": {
       "schema": { "$ref": "#/entities/AdminUser" },
@@ -117,9 +168,21 @@
       "schema": { "$ref": "#/entities/FleetVehicle" },
       "description": "Transport fleet vehicles managed by admins."
     },
+    "/drivers/{driverId}": {
+      "schema": { "$ref": "#/entities/Driver" },
+      "description": "Transport drivers managed by admins."
+    },
     "/bookings/{bookingId}": {
       "schema": { "$ref": "#/entities/Booking" },
       "description": "Customer goods transport bookings reviewed and fulfilled by admins."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/PaymentRecord" },
+      "description": "Customer and admin payment history records."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "Real-time booking and admin notifications."
     }
   }
 }

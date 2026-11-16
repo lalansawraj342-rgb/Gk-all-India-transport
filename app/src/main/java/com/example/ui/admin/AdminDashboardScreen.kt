@@ -6,7 +6,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Cancel
@@ -37,11 +35,12 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -55,10 +54,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,11 +70,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.Booking
 import com.example.data.model.BookingStatus
+import com.example.data.model.Driver
+import com.example.data.model.DriverAvailability
 import com.example.data.model.FleetVehicle
 import com.example.data.model.VehicleAvailability
 import com.example.data.model.VehicleType
 import com.example.notifications.BookingNotificationHelper
 import com.example.ui.components.BookingStatusBadge
+import com.example.ui.components.GoodsPhotoStrip
+import com.example.ui.components.PaymentStatusBadge
 import com.example.ui.components.dialPhoneNumber
 import com.example.ui.i18n.AppStrings
 import com.example.ui.theme.AmberAccent
@@ -98,19 +99,33 @@ fun AdminDashboardScreen(
   strings: AppStrings,
   bookingsState: UiState<List<Booking>>,
   vehiclesState: UiState<List<FleetVehicle>>,
+  driversState: UiState<List<Driver>>,
   incomingAlert: Booking?,
   onDismissAlert: () -> Unit,
-  onUpdateStatus: (bookingId: String, newStatus: String, notes: String?) -> Unit,
+  onUpdateStatus: (booking: Booking, newStatus: String, notes: String?) -> Unit,
   onAssignVehicle:
     (
-      bookingId: String,
+      booking: Booking,
       fleetVehicleId: String?,
       vehicleNumber: String,
+      driverId: String?,
       driverName: String,
       driverPhone: String,
       estimatedFare: String,
+      totalFareAmount: Double,
       adminNotes: String,
     ) -> Unit,
+  onRecordPayment:
+    (
+      booking: Booking,
+      amount: Double,
+      method: String,
+      paymentStatus: String,
+      totalFareAmount: Double,
+      referenceId: String,
+      notes: String,
+    ) -> Unit,
+  onSendNotification: (booking: Booking, title: String, message: String) -> Unit,
 ) {
   val context = LocalContext.current
   var hasNotifPermission by remember {
@@ -125,9 +140,11 @@ fun AdminDashboardScreen(
   var selectedStatusFilter by remember { mutableStateOf<String?>(null) }
   var assignTarget by remember { mutableStateOf<Booking?>(null) }
   var statusTarget by remember { mutableStateOf<Booking?>(null) }
+  var paymentTarget by remember { mutableStateOf<Booking?>(null) }
+  var notifyTarget by remember { mutableStateOf<Booking?>(null) }
 
-  val vehicles =
-    (vehiclesState as? UiState.Success)?.data ?: emptyList()
+  val vehicles = (vehiclesState as? UiState.Success)?.data ?: emptyList()
+  val drivers = (driversState as? UiState.Success)?.data ?: emptyList()
 
   Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     when (bookingsState) {
@@ -150,20 +167,23 @@ fun AdminDashboardScreen(
       }
       is UiState.Success -> {
         val allBookings = bookingsState.data
-        val newCount = allBookings.count { it.status == BookingStatus.NEW_BOOKING.label || it.status == BookingStatus.PENDING.label }
+        val totalCount = allBookings.size
+        val pendingCount =
+          allBookings.count { BookingStatus.fromLabel(it.status) == BookingStatus.PENDING }
         val activeCount =
           allBookings.count {
-            it.status == BookingStatus.CONFIRMED.label ||
-              it.status == BookingStatus.VEHICLE_ASSIGNED.label ||
-              it.status == BookingStatus.VEHICLE_DISPATCHED.label
+            val st = BookingStatus.fromLabel(it.status)
+            st != BookingStatus.PENDING && st.isActiveTrip()
           }
-        val deliveredCount = allBookings.count { it.status == BookingStatus.DELIVERED.label }
-        val readyFleetCount = vehicles.count { it.availability == VehicleAvailability.AVAILABLE.label }
+        val completedCount =
+          allBookings.count { BookingStatus.fromLabel(it.status) == BookingStatus.DELIVERED }
 
         val filteredBookings =
           remember(allBookings, searchQuery, selectedStatusFilter) {
             allBookings.filter { b ->
-              val matchesStatus = selectedStatusFilter == null || b.status == selectedStatusFilter
+              val matchesStatus =
+                selectedStatusFilter == null ||
+                  BookingStatus.fromLabel(b.status).label == selectedStatusFilter
               val q = searchQuery.trim().lowercase()
               val matchesQuery =
                 q.isEmpty() ||
@@ -182,7 +202,6 @@ fun AdminDashboardScreen(
           contentPadding = PaddingValues(16.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-          // Header + Notification Permission Prompt
           item {
             Text(
               text = strings.adminDashboardTitle,
@@ -248,7 +267,6 @@ fun AdminDashboardScreen(
             }
           }
 
-          // Live Incoming Booking Alert Banner
           item {
             AnimatedVisibility(visible = incomingAlert != null) {
               incomingAlert?.let { alert ->
@@ -276,7 +294,8 @@ fun AdminDashboardScreen(
                         fontWeight = FontWeight.Bold,
                       )
                       Text(
-                        text = "${alert.vehicleType} • ${alert.pickupLocation} → ${alert.deliveryLocation}",
+                        text =
+                          "${alert.vehicleType} • ${alert.pickupLocation} → ${alert.deliveryLocation}",
                         style = MaterialTheme.typography.bodySmall,
                         color = PureWhite.copy(alpha = 0.92f),
                       )
@@ -294,15 +313,22 @@ fun AdminDashboardScreen(
             }
           }
 
-          // 4 KPI Summary Cards
+          // 4 KPI Summary Cards: Total, Pending, Active, Completed
           item {
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
               KpiCard(
+                label = strings.totalBookingsCount,
+                count = totalCount,
+                bgColor = PureWhite,
+                fgColor = NavyDeep,
+                modifier = Modifier.weight(1f),
+              )
+              KpiCard(
                 label = strings.newRequestsCount,
-                count = newCount,
+                count = pendingCount,
                 bgColor = AmberContainer,
                 fgColor = AmberOnContainer,
                 modifier = Modifier.weight(1f),
@@ -316,16 +342,9 @@ fun AdminDashboardScreen(
               )
               KpiCard(
                 label = strings.deliveredCount,
-                count = deliveredCount,
+                count = completedCount,
                 bgColor = EmeraldLightContainer,
                 fgColor = EmeraldOnContainer,
-                modifier = Modifier.weight(1f),
-              )
-              KpiCard(
-                label = strings.fleetAvailableCount,
-                count = readyFleetCount,
-                bgColor = PureWhite,
-                fgColor = NavyDeep,
                 modifier = Modifier.weight(1f),
               )
             }
@@ -357,7 +376,7 @@ fun AdminDashboardScreen(
               FilterChip(
                 selected = selectedStatusFilter == null,
                 onClick = { selectedStatusFilter = null },
-                label = { Text("${strings.filterAll} (${allBookings.size})") },
+                label = { Text("${strings.filterAll} ($totalCount)") },
                 colors =
                   FilterChipDefaults.filterChipColors(
                     selectedContainerColor = NavyDeep,
@@ -365,7 +384,7 @@ fun AdminDashboardScreen(
                   ),
               )
               BookingStatus.entries.forEach { st ->
-                val count = allBookings.count { it.status == st.label }
+                val count = allBookings.count { BookingStatus.fromLabel(it.status) == st }
                 FilterChip(
                   selected = selectedStatusFilter == st.label,
                   onClick = {
@@ -412,17 +431,16 @@ fun AdminDashboardScreen(
                 booking = booking,
                 onCallCustomer = { dialPhoneNumber(context, booking.customerPhone) },
                 onCallDriver = { dialPhoneNumber(context, booking.assignedDriverPhone) },
-                onConfirm = {
-                  onUpdateStatus(booking.id, BookingStatus.CONFIRMED.label, null)
-                },
-                onMarkPending = {
-                  onUpdateStatus(booking.id, BookingStatus.PENDING.label, null)
+                onAccept = {
+                  onUpdateStatus(booking, BookingStatus.ACCEPTED.label, null)
                 },
                 onReject = {
-                  onUpdateStatus(booking.id, BookingStatus.CANCELLED.label, null)
+                  onUpdateStatus(booking, BookingStatus.CANCELLED.label, null)
                 },
                 onAssignVehicleClick = { assignTarget = booking },
                 onUpdateStatusClick = { statusTarget = booking },
+                onPaymentClick = { paymentTarget = booking },
+                onNotifyClick = { notifyTarget = booking },
               )
             }
           }
@@ -432,13 +450,24 @@ fun AdminDashboardScreen(
   }
 
   assignTarget?.let { target ->
-    AssignVehicleDialog(
+    AssignVehicleDriverDialog(
       strings = strings,
       booking = target,
       availableVehicles = vehicles.filter { it.availability == VehicleAvailability.AVAILABLE.label },
+      availableDrivers = drivers.filter { it.availability == DriverAvailability.AVAILABLE.label },
       onDismiss = { assignTarget = null },
-      onConfirmAssign = { fleetId, number, driverName, driverPhone, fare, notes ->
-        onAssignVehicle(target.id, fleetId, number, driverName, driverPhone, fare, notes)
+      onConfirmAssign = { fleetId, number, driverId, driverName, driverPhone, fare, totalFare, notes ->
+        onAssignVehicle(
+          target,
+          fleetId,
+          number,
+          driverId,
+          driverName,
+          driverPhone,
+          fare,
+          totalFare,
+          notes,
+        )
         assignTarget = null
       },
     )
@@ -450,8 +479,32 @@ fun AdminDashboardScreen(
       booking = target,
       onDismiss = { statusTarget = null },
       onConfirmStatus = { newStatus, notes ->
-        onUpdateStatus(target.id, newStatus, notes)
+        onUpdateStatus(target, newStatus, notes)
         statusTarget = null
+      },
+    )
+  }
+
+  paymentTarget?.let { target ->
+    AdminPaymentDialog(
+      strings = strings,
+      booking = target,
+      onDismiss = { paymentTarget = null },
+      onRecordPayment = { amount, method, paymentStatus, totalFare, ref, notes ->
+        onRecordPayment(target, amount, method, paymentStatus, totalFare, ref, notes)
+        paymentTarget = null
+      },
+    )
+  }
+
+  notifyTarget?.let { target ->
+    SendCustomerNotificationDialog(
+      strings = strings,
+      booking = target,
+      onDismiss = { notifyTarget = null },
+      onSend = { title, message ->
+        onSendNotification(target, title, message)
+        notifyTarget = null
       },
     )
   }
@@ -497,11 +550,12 @@ private fun AdminBookingCard(
   booking: Booking,
   onCallCustomer: () -> Unit,
   onCallDriver: () -> Unit,
-  onConfirm: () -> Unit,
-  onMarkPending: () -> Unit,
+  onAccept: () -> Unit,
   onReject: () -> Unit,
   onAssignVehicleClick: () -> Unit,
   onUpdateStatusClick: () -> Unit,
+  onPaymentClick: () -> Unit,
+  onNotifyClick: () -> Unit,
 ) {
   val status = BookingStatus.fromLabel(booking.status)
   val vehicleEnum = VehicleType.fromLabel(booking.vehicleType)
@@ -525,12 +579,14 @@ private fun AdminBookingCard(
           color = NavyDeep,
           fontWeight = FontWeight.ExtraBold,
         )
-        BookingStatusBadge(statusLabel = booking.status, isHindi = strings.isHindi)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+          PaymentStatusBadge(paymentStatusLabel = booking.paymentStatus, isHindi = strings.isHindi)
+          BookingStatusBadge(statusLabel = booking.status, isHindi = strings.isHindi)
+        }
       }
 
       Spacer(modifier = Modifier.height(10.dp))
 
-      // Customer Name + Direct Call Button
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -575,7 +631,6 @@ private fun AdminBookingCard(
       HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
       Spacer(modifier = Modifier.height(10.dp))
 
-      // Locations
       Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
           Icons.Filled.MyLocation,
@@ -666,6 +721,31 @@ private fun AdminBookingCard(
         )
       }
 
+      if (booking.goodsPhotos.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        GoodsPhotoStrip(photosBase64 = booking.goodsPhotos)
+      }
+
+      if (booking.estimatedFare.isNotBlank() || booking.paidAmount > 0 || booking.totalFareAmount > 0) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+          text = buildString {
+            if (booking.estimatedFare.isNotBlank()) {
+              append("${strings.estimatedFareLabel}: ${booking.estimatedFare}")
+            } else if (booking.totalFareAmount > 0) {
+              append("${strings.estimatedFareLabel}: ₹${booking.totalFareAmount.toLong()}")
+            }
+            if (booking.paidAmount > 0) {
+              if (isNotEmpty()) append(" • ")
+              append("${strings.paidAmountLabel}: ₹${booking.paidAmount.toLong()}")
+            }
+          },
+          style = MaterialTheme.typography.labelLarge,
+          color = EmeraldPrimary,
+          fontWeight = FontWeight.Bold,
+        )
+      }
+
       if (booking.assignedVehicleNumber.isNotBlank()) {
         Spacer(modifier = Modifier.height(10.dp))
         Surface(
@@ -692,14 +772,6 @@ private fun AdminBookingCard(
                   color = NavyOnContainer,
                 )
               }
-              if (booking.estimatedFare.isNotBlank()) {
-                Text(
-                  text = "${strings.estimatedFareLabel}: ${booking.estimatedFare}",
-                  style = MaterialTheme.typography.labelMedium,
-                  color = EmeraldPrimary,
-                  fontWeight = FontWeight.Bold,
-                )
-              }
             }
             if (booking.assignedDriverPhone.isNotBlank()) {
               IconButton(onClick = onCallDriver) {
@@ -712,14 +784,13 @@ private fun AdminBookingCard(
 
       Spacer(modifier = Modifier.height(12.dp))
 
-      // Quick Action Row 1: Confirm / Pending / Reject (when new or pending)
-      if (status == BookingStatus.NEW_BOOKING || status == BookingStatus.PENDING) {
+      if (status == BookingStatus.PENDING) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           Button(
-            onClick = onConfirm,
+            onClick = onAccept,
             modifier = Modifier.weight(1f).testTag("admin_confirm_${booking.id}"),
             colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
             shape = RoundedCornerShape(12.dp),
@@ -727,15 +798,6 @@ private fun AdminBookingCard(
             Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(4.dp))
             Text(strings.acceptConfirm, fontWeight = FontWeight.Bold)
-          }
-          if (status == BookingStatus.NEW_BOOKING) {
-            OutlinedButton(
-              onClick = onMarkPending,
-              modifier = Modifier.weight(1f),
-              shape = RoundedCornerShape(12.dp),
-            ) {
-              Text(strings.markPending)
-            }
           }
           OutlinedButton(
             onClick = onReject,
@@ -752,7 +814,6 @@ private fun AdminBookingCard(
         Spacer(modifier = Modifier.height(8.dp))
       }
 
-      // Action Row 2: Assign Vehicle & Update Status
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -777,207 +838,31 @@ private fun AdminBookingCard(
           Text(strings.updateStatusBtn)
         }
       }
+
+      Spacer(modifier = Modifier.height(8.dp))
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        OutlinedButton(
+          onClick = onPaymentClick,
+          modifier = Modifier.weight(1f).testTag("admin_payment_btn_${booking.id}"),
+          shape = RoundedCornerShape(12.dp),
+        ) {
+          Icon(Icons.Filled.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(strings.recordPaymentBtn)
+        }
+        OutlinedButton(
+          onClick = onNotifyClick,
+          modifier = Modifier.weight(1f).testTag("admin_notify_btn_${booking.id}"),
+          shape = RoundedCornerShape(12.dp),
+        ) {
+          Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(strings.sendNotificationBtn)
+        }
+      }
     }
   }
-}
-
-@Composable
-private fun AssignVehicleDialog(
-  strings: AppStrings,
-  booking: Booking,
-  availableVehicles: List<FleetVehicle>,
-  onDismiss: () -> Unit,
-  onConfirmAssign:
-    (
-      fleetId: String?,
-      vehicleNumber: String,
-      driverName: String,
-      driverPhone: String,
-      fare: String,
-      notes: String,
-    ) -> Unit,
-) {
-  var selectedFleetId by remember { mutableStateOf<String?>(null) }
-  var vehicleNumber by remember { mutableStateOf(booking.assignedVehicleNumber) }
-  var driverName by remember { mutableStateOf(booking.assignedDriverName) }
-  var driverPhone by remember { mutableStateOf(booking.assignedDriverPhone) }
-  var fare by remember { mutableStateOf(booking.estimatedFare) }
-  var notes by remember { mutableStateOf(booking.adminNotes) }
-
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text(strings.assignVehicleTitle, fontWeight = FontWeight.Bold, color = NavyDeep) },
-    text = {
-      Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        if (availableVehicles.isNotEmpty()) {
-          Text(
-            text = strings.selectFromFleet,
-            style = MaterialTheme.typography.labelLarge,
-            color = EmeraldPrimary,
-          )
-          availableVehicles.forEach { v ->
-            val isPicked = selectedFleetId == v.id
-            Surface(
-              color = if (isPicked) EmeraldLightContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-              shape = RoundedCornerShape(10.dp),
-              border = if (isPicked) BorderStroke(1.5.dp, EmeraldPrimary) else null,
-              modifier =
-                Modifier.fillMaxWidth().clickable {
-                  selectedFleetId = v.id
-                  vehicleNumber = v.vehicleNumber
-                  driverName = v.driverName
-                  driverPhone = v.driverPhone
-                },
-            ) {
-              Row(
-                modifier = Modifier.padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                RadioButton(
-                  selected = isPicked,
-                  onClick = {
-                    selectedFleetId = v.id
-                    vehicleNumber = v.vehicleNumber
-                    driverName = v.driverName
-                    driverPhone = v.driverPhone
-                  },
-                )
-                Column {
-                  Text(
-                    text = "${v.vehicleNumber} (${v.vehicleType})",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                  )
-                  Text(
-                    text = "${v.driverName} • ${v.driverPhone}",
-                    style = MaterialTheme.typography.bodySmall,
-                  )
-                }
-              }
-            }
-          }
-          Text(
-            text = strings.orEnterManually,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-
-        OutlinedTextField(
-          value = vehicleNumber,
-          onValueChange = {
-            vehicleNumber = it
-            selectedFleetId = null
-          },
-          label = { Text(strings.vehicleNumberInput) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = driverName,
-          onValueChange = { driverName = it },
-          label = { Text(strings.driverNameInput) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = driverPhone,
-          onValueChange = { driverPhone = it.filter { ch -> ch.isDigit() || ch == '+' }.take(15) },
-          label = { Text(strings.driverPhoneInput) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = fare,
-          onValueChange = { fare = it },
-          label = { Text(strings.fareQuoteInput) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = notes,
-          onValueChange = { notes = it },
-          label = { Text(strings.adminNotesInput) },
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = {
-          onConfirmAssign(selectedFleetId, vehicleNumber, driverName, driverPhone, fare, notes)
-        },
-        enabled = vehicleNumber.trim().length >= 4 && driverName.trim().length >= 2,
-        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-      ) {
-        Text(strings.saveAssignment)
-      }
-    },
-    dismissButton = {
-      TextButton(onClick = onDismiss) { Text(strings.cancelAction) }
-    },
-  )
-}
-
-@Composable
-private fun UpdateBookingStatusDialog(
-  strings: AppStrings,
-  booking: Booking,
-  onDismiss: () -> Unit,
-  onConfirmStatus: (newStatus: String, notes: String?) -> Unit,
-) {
-  var selectedStatus by remember { mutableStateOf(booking.status) }
-  var notes by remember { mutableStateOf(booking.adminNotes) }
-
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text(strings.updateStatusTitle, fontWeight = FontWeight.Bold, color = NavyDeep) },
-    text = {
-      Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        BookingStatus.entries.forEach { st ->
-          Row(
-            modifier =
-              Modifier.fillMaxWidth()
-                .clickable { selectedStatus = st.label }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            RadioButton(
-              selected = selectedStatus == st.label,
-              onClick = { selectedStatus = st.label },
-            )
-            Text(
-              text = if (strings.isHindi) "${st.labelHi} (${st.label})" else st.label,
-              style = MaterialTheme.typography.bodyMedium,
-              fontWeight = if (selectedStatus == st.label) FontWeight.Bold else FontWeight.Normal,
-            )
-          }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        OutlinedTextField(
-          value = notes,
-          onValueChange = { notes = it },
-          label = { Text(strings.adminNotesInput) },
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = { onConfirmStatus(selectedStatus, notes) },
-        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-      ) {
-        Text(strings.updateStatusBtn)
-      }
-    },
-    dismissButton = {
-      TextButton(onClick = onDismiss) { Text(strings.cancelAction) }
-    },
-  )
 }
