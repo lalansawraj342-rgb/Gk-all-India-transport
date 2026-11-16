@@ -1,0 +1,6 @@
+{
+  "name": "G.K. All India Transport",
+  "description": "Goods vehicle booking and real-time admin fleet management app for G.K. All India Transport across India, with Hindi & English support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
