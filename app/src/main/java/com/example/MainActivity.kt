@@ -321,6 +321,10 @@ private fun AuthenticatedTransportShell(
                         color = PureWhite,
                         fontWeight = FontWeight.Bold,
                       )
+                      if (isAdmin && !adminMode && newAdminCount > 0) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Badge { Text(newAdminCount.toString()) }
+                      }
                     }
                   }
 
